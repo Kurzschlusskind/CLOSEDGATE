@@ -165,9 +165,10 @@ yubikey_status_t yubikey_verify_otp(const char *otp)
 
         esp_http_client_cleanup(client);
 
-        /* Wait before retry */
+        /* Wait before retry with exponential backoff */
         if (attempt < retry_count) {
-            vTaskDelay(pdMS_TO_TICKS(1000 * attempt));  /* Exponential backoff */
+            int delay_ms = 1000 * (1 << (attempt - 1));  /* 1s, 2s, 4s, ... */
+            vTaskDelay(pdMS_TO_TICKS(delay_ms));
         }
     }
 

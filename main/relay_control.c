@@ -5,6 +5,7 @@
  * Implements GPIO-based relay control with non-blocking timer-based pulses.
  */
 
+#include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
 #include "driver/gpio.h"

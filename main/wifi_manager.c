@@ -7,6 +7,7 @@
  */
 
 #include <string.h>
+#include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -251,7 +252,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                 s_retry_count++;
                 
                 /* Exponential backoff: 1s, 2s, 4s, 8s, ... (max 30s) */
-                int delay_ms = (1 << s_retry_count) * 1000;
+                int delay_ms = (1 << (s_retry_count - 1)) * 1000;
                 if (delay_ms > 30000) delay_ms = 30000;
                 
                 ESP_LOGI(TAG, "Reconnecting in %d ms (attempt %d/%d)", 
