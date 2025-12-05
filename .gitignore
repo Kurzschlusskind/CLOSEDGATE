@@ -1,0 +1,23 @@
+# Build artifacts
+build/
+sdkconfig
+sdkconfig.old
+*.o
+*.a
+*.elf
+*.bin
+*.map
+
+# IDE/Editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ESP-IDF specific
+dependencies.lock
+managed_components/
+
+# CodeQL
+_codeql*

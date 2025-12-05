@@ -1,0 +1,2 @@
+# Component-specific Kconfig is inherited from project root
+# Additional component options can be added here if needed
