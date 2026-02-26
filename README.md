@@ -1,12 +1,13 @@
 # CLOSEDGATE
 
-ESP32 YubiKey NFC Access Controller - Secure, cryptographically validated access control using YubiKey 5 NFC with server-side OTP verification against the Yubico Cloud API.
+ESP32-C3 Super Mini YubiKey NFC Access Controller - Secure, cryptographically validated access control using YubiKey 5 NFC with server-side OTP verification against the Yubico Cloud API.
 
 ## Features
 
 - **YubiKey OTP Validation**: Cryptographically secure one-time passwords
 - **NFC Communication**: PN532 NFC reader via I2C for contactless authentication
 - **Cloud Verification**: Server-side OTP validation against Yubico Cloud API
+- **Acoustic Feedback**: Passive piezo buzzer with configurable sound patterns
 - **Automatic Reconnection**: WiFi reconnection with exponential backoff
 - **Configurable Hardware**: Flexible GPIO configuration via menuconfig
 - **Robust Error Handling**: Comprehensive logging and retry mechanisms
@@ -17,32 +18,36 @@ ESP32 YubiKey NFC Access Controller - Secure, cryptographically validated access
 
 | Component | Description | Quantity |
 |-----------|-------------|----------|
-| ESP32 | Development board (e.g., ESP32-DevKitC) | 1 |
+| ESP32-C3 Super Mini | Development board | 1 |
 | PN532 | NFC/RFID module with I2C interface | 1 |
 | Relay Module | 5V relay module (Active-High) | 1 |
+| Piezo Buzzer | 3-pin passive piezo buzzer | 1 |
 | YubiKey 5 NFC | YubiKey with NFC capability | 1 |
 | Power Supply | 5V power supply | 1 |
 
 ### Wiring Diagram
 
 ```
-ESP32                    PN532 NFC Module
+ESP32-C3 Super Mini      PN532 NFC Module
 ┌─────────┐              ┌─────────────┐
-│         │              │             │
-│   GPIO21├──────────────┤SDA          │
-│   GPIO22├──────────────┤SCL          │
-│     3.3V├──────────────┤VCC          │
-│      GND├──────────────┤GND          │
-│         │              │             │
+│    GPIO4 ├─────────────┤SDA          │
+│    GPIO5 ├─────────────┤SCL          │
+│     3.3V ├─────────────┤VCC          │
+│      GND ├─────────────┤GND          │
 └─────────┘              └─────────────┘
 
-ESP32                    Relay Module
+ESP32-C3 Super Mini      Relay Module
 ┌─────────┐              ┌─────────────┐
-│         │              │             │
-│   GPIO26├──────────────┤IN           │
-│      5V ├──────────────┤VCC          │
-│      GND├──────────────┤GND          │
-│         │              │             │
+│    GPIO6 ├─────────────┤IN           │
+│       5V ├─────────────┤VCC          │
+│      GND ├─────────────┤GND          │
+└─────────┘              └─────────────┘
+
+ESP32-C3 Super Mini      Piezo Buzzer (3-Pin)
+┌─────────┐              ┌─────────────┐
+│    GPIO7 ├─────────────┤S (Signal)   │
+│     3.3V ├─────────────┤+ (VCC)      │
+│      GND ├─────────────┤- (GND)      │
 └─────────┘              └─────────────┘
 ```
 
@@ -50,9 +55,11 @@ ESP32                    Relay Module
 
 | Function | GPIO | Description |
 |----------|------|-------------|
-| I2C SDA | GPIO21 | NFC module data line |
-| I2C SCL | GPIO22 | NFC module clock line |
-| Relay | GPIO26 | Relay control (Active-High) |
+| I2C SDA | GPIO4 | NFC module data line |
+| I2C SCL | GPIO5 | NFC module clock line |
+| Relay | GPIO6 | Relay control (Active-High) |
+| Buzzer | GPIO7 | Piezo buzzer signal |
+| Onboard LED | GPIO8 | Status LED (active LOW) |
 
 ## Software Requirements
 
@@ -65,7 +72,7 @@ ESP32                    Relay Module
 ### 1. Install ESP-IDF
 
 Follow the official ESP-IDF installation guide:
-- [ESP-IDF Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/v5.1/esp32/get-started/)
+- [ESP-IDF Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/v5.1/esp32c3/get-started/)
 
 Quick setup on Linux/macOS:
 ```bash
@@ -73,7 +80,7 @@ mkdir -p ~/esp
 cd ~/esp
 git clone -b v5.1 --recursive https://github.com/espressif/esp-idf.git
 cd esp-idf
-./install.sh esp32
+./install.sh esp32c3
 source export.sh
 ```
 
@@ -95,10 +102,13 @@ Navigate to **CLOSEDGATE Configuration** and set:
 - **WiFi SSID**: Your WiFi network name
 - **WiFi Password**: Your WiFi password
 - **Yubico Client ID**: Your Yubico API client ID (see below)
-- **Relay GPIO**: GPIO pin for relay (default: 26)
+- **Relay GPIO**: GPIO pin for relay (default: 6)
 - **Relay Pulse Duration**: Door unlock duration in ms (default: 3000)
-- **NFC I2C SDA GPIO**: I2C data pin (default: 21)
-- **NFC I2C SCL GPIO**: I2C clock pin (default: 22)
+- **NFC I2C SDA GPIO**: I2C data pin (default: 4)
+- **NFC I2C SCL GPIO**: I2C clock pin (default: 5)
+- **Enable Piezo Buzzer**: Enable acoustic feedback (default: yes)
+- **Buzzer GPIO**: GPIO pin for buzzer (default: 7)
+- **Buzzer Volume**: Duty cycle percentage (default: 50)
 
 ### 4. Build the Project
 
@@ -106,13 +116,13 @@ Navigate to **CLOSEDGATE Configuration** and set:
 idf.py build
 ```
 
-### 5. Flash to ESP32
+### 5. Flash to ESP32-C3
 
 ```bash
 idf.py -p /dev/ttyUSB0 flash
 ```
 
-Replace `/dev/ttyUSB0` with your ESP32's serial port.
+Replace `/dev/ttyUSB0` with your ESP32-C3's serial port.
 
 ### 6. Monitor Output
 
@@ -141,7 +151,7 @@ To use the Yubico Cloud API for OTP verification, you need to register for a fre
 
 ## Usage
 
-1. Power on the ESP32
+1. Power on the ESP32-C3 Super Mini
 2. Wait for WiFi connection (check serial monitor)
 3. Tap your YubiKey 5 NFC on the PN532 reader
 4. On successful OTP verification, the relay activates for 3 seconds
@@ -167,13 +177,33 @@ To use the Yubico Cloud API for OTP verification, you need to register for a fre
 | `CLOSEDGATE_WIFI_SSID` | YourWiFiSSID | WiFi network name |
 | `CLOSEDGATE_WIFI_PASSWORD` | YourWiFiPassword | WiFi password |
 | `CLOSEDGATE_YUBICO_CLIENT_ID` | (empty) | Yubico API client ID |
-| `CLOSEDGATE_RELAY_GPIO` | 26 | Relay GPIO pin |
+| `CLOSEDGATE_RELAY_GPIO` | 6 | Relay GPIO pin |
 | `CLOSEDGATE_RELAY_PULSE_MS` | 3000 | Relay pulse duration (ms) |
-| `CLOSEDGATE_NFC_SDA_GPIO` | 21 | I2C SDA pin |
-| `CLOSEDGATE_NFC_SCL_GPIO` | 22 | I2C SCL pin |
+| `CLOSEDGATE_NFC_SDA_GPIO` | 4 | I2C SDA pin |
+| `CLOSEDGATE_NFC_SCL_GPIO` | 5 | I2C SCL pin |
 | `CLOSEDGATE_NFC_POLL_INTERVAL_MS` | 500 | NFC polling interval |
 | `CLOSEDGATE_HTTP_RETRY_COUNT` | 3 | HTTP request retries |
 | `CLOSEDGATE_WIFI_RECONNECT_MAX_RETRY` | 10 | Max WiFi reconnect attempts |
+| `CLOSEDGATE_BUZZER_ENABLED` | y | Enable piezo buzzer |
+| `CLOSEDGATE_BUZZER_GPIO` | 7 | Buzzer GPIO pin |
+| `CLOSEDGATE_BUZZER_VOLUME` | 50 | Buzzer volume (duty cycle %) |
+| `CLOSEDGATE_BUZZER_BOOT_SOUND` | y | Play sound on boot |
+| `CLOSEDGATE_BUZZER_CARD_SOUND` | y | Play sound on card detection |
+| `CLOSEDGATE_BUZZER_ACCESS_SOUND` | y | Play sound on access granted/denied |
+| `CLOSEDGATE_BUZZER_WIFI_SOUND` | y | Play sound on WiFi events |
+| `CLOSEDGATE_BUZZER_ERROR_SOUND` | y | Play sound on errors |
+
+### Buzzer Sound Patterns
+
+| Event | Pattern |
+|-------|---------|
+| Boot OK | 800Hz→1200Hz→1600Hz→2400Hz (ascending) |
+| Card Detected | 2000Hz short beep |
+| Access Granted | 1000Hz + 2000Hz double beep |
+| Access Denied | 2000Hz→1500Hz→800Hz descending triple beep |
+| Error | 3× short 3000Hz beeps |
+| WiFi Connected | 1500Hz double beep |
+| WiFi Disconnected | 500Hz long low tone |
 
 ## Troubleshooting
 
@@ -186,7 +216,7 @@ E (1234) CLOSEDGATE: Failed to get PN532 firmware version
 ```
 
 **Solutions:**
-1. Check I2C wiring (SDA to GPIO21, SCL to GPIO22)
+1. Check I2C wiring (SDA to GPIO4, SCL to GPIO5)
 2. Verify PN532 is set to I2C mode (check DIP switches)
 3. Ensure proper power supply to PN532 (3.3V)
 4. Try reducing I2C speed in code (100kHz default)
@@ -266,7 +296,9 @@ CLOSEDGATE/
 │   ├── wifi_manager.c          # WiFi with reconnect
 │   ├── wifi_manager.h
 │   ├── relay_control.c         # Relay control
-│   └── relay_control.h
+│   ├── relay_control.h
+│   ├── buzzer.c                # Piezo buzzer driver
+│   └── buzzer.h
 └── README.md                   # This file
 ```
 

@@ -22,6 +22,10 @@
 #include "relay_control.h"
 #include "sdkconfig.h"
 
+#ifdef CONFIG_CLOSEDGATE_BUZZER_ENABLED
+#include "buzzer.h"
+#endif
+
 #ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
 #include "yubikey_verify.h"
 #include "wifi_manager.h"
@@ -111,6 +115,14 @@ void app_main(void)
         ESP_LOGE(TAG, "Relay control init failed: %s", esp_err_to_name(ret));
         esp_restart();
     }
+
+#ifdef CONFIG_CLOSEDGATE_BUZZER_ENABLED
+    ESP_LOGI(TAG, "Initializing buzzer...");
+    ret = buzzer_init(CONFIG_CLOSEDGATE_BUZZER_GPIO);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Buzzer init failed: %s", esp_err_to_name(ret));
+    }
+#endif
 
 #ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
     /* Initialize WiFi manager */
@@ -217,6 +229,10 @@ void app_main(void)
     ESP_LOGI(TAG, "  Waiting for NFC tap...");
     ESP_LOGI(TAG, "============================================");
 
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_BOOT_SOUND)
+    buzzer_play_pattern(BUZZER_PATTERN_BOOT_OK);
+#endif
+
     /* Main loop - monitor system status */
     while (1) {
         /* Periodic status logging */
@@ -247,6 +263,10 @@ static void otp_received_callback(const char *otp, size_t len)
     }
 
     ESP_LOGI(TAG, "OTP received from NFC (len=%d)", (int)len);
+
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_CARD_SOUND)
+    buzzer_play_pattern(BUZZER_PATTERN_CARD_DETECTED);
+#endif
 
     otp_item_t item;
     if (len >= sizeof(item.otp)) {
@@ -317,28 +337,46 @@ static void otp_processing_task(void *pvParameters)
             switch (status) {
                 case YUBIKEY_STATUS_OK:
                     ESP_LOGI(TAG, "=== ACCESS GRANTED ===");
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ACCESS_SOUND)
+                    buzzer_play_pattern(BUZZER_PATTERN_ACCESS_GRANTED);
+#endif
                     relay_control_trigger();
                     break;
 
                 case YUBIKEY_STATUS_REPLAYED_OTP:
                     ESP_LOGW(TAG, "=== ACCESS DENIED: Replayed OTP ===");
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ACCESS_SOUND)
+                    buzzer_play_pattern(BUZZER_PATTERN_ACCESS_DENIED);
+#endif
                     break;
 
                 case YUBIKEY_STATUS_BAD_OTP:
                     ESP_LOGW(TAG, "=== ACCESS DENIED: Invalid OTP format ===");
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ACCESS_SOUND)
+                    buzzer_play_pattern(BUZZER_PATTERN_ACCESS_DENIED);
+#endif
                     break;
 
                 case YUBIKEY_STATUS_NO_SUCH_CLIENT:
                     ESP_LOGE(TAG, "=== ERROR: Invalid Yubico Client ID ===");
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ERROR_SOUND)
+                    buzzer_play_pattern(BUZZER_PATTERN_ERROR);
+#endif
                     break;
 
                 case YUBIKEY_STATUS_NETWORK_ERROR:
                     ESP_LOGE(TAG, "=== ERROR: Network communication failed ===");
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ERROR_SOUND)
+                    buzzer_play_pattern(BUZZER_PATTERN_ERROR);
+#endif
                     break;
 
                 default:
                     ESP_LOGW(TAG, "=== ACCESS DENIED: %s ===", 
                              yubikey_status_to_string(status));
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ACCESS_SOUND)
+                    buzzer_play_pattern(BUZZER_PATTERN_ACCESS_DENIED);
+#endif
                     break;
             }
         }
@@ -378,6 +416,9 @@ static void wifi_state_changed(wifi_state_t state)
     switch (state) {
         case WIFI_STATE_CONNECTED:
             ESP_LOGI(TAG, "WiFi: Connected");
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_WIFI_SOUND)
+            buzzer_play_pattern(BUZZER_PATTERN_WIFI_CONNECTED);
+#endif
             break;
         case WIFI_STATE_DISCONNECTED:
             ESP_LOGW(TAG, "WiFi: Disconnected");
@@ -387,6 +428,9 @@ static void wifi_state_changed(wifi_state_t state)
             break;
         case WIFI_STATE_FAILED:
             ESP_LOGE(TAG, "WiFi: Connection failed");
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_WIFI_SOUND)
+            buzzer_play_pattern(BUZZER_PATTERN_WIFI_DISCONNECTED);
+#endif
             break;
     }
 }
