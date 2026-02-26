@@ -7,6 +7,7 @@ idf_component_register(
         "yubikey_verify.c"
         "wifi_manager.c"
         "relay_control.c"
+        "mifare_auth.c"
     INCLUDE_DIRS
         "."
     REQUIRES

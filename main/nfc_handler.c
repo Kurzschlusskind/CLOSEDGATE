@@ -55,6 +55,7 @@ static bool s_initialized = false;
 static bool s_running = false;
 static TaskHandle_t s_nfc_task_handle = NULL;
 static nfc_otp_callback_t s_otp_callback = NULL;
+static nfc_uid_callback_t s_uid_callback = NULL;
 static int s_sda_gpio = -1;
 static int s_scl_gpio = -1;
 
@@ -132,7 +133,7 @@ esp_err_t nfc_handler_init(int sda_gpio, int scl_gpio)
     return ESP_OK;
 }
 
-esp_err_t nfc_handler_start(nfc_otp_callback_t callback)
+esp_err_t nfc_handler_start(nfc_otp_callback_t otp_callback, nfc_uid_callback_t uid_callback)
 {
     if (!s_initialized) {
         ESP_LOGE(TAG, "NFC handler not initialized");
@@ -144,12 +145,13 @@ esp_err_t nfc_handler_start(nfc_otp_callback_t callback)
         return ESP_OK;
     }
 
-    if (callback == NULL) {
-        ESP_LOGE(TAG, "Callback cannot be NULL");
+    if (otp_callback == NULL && uid_callback == NULL) {
+        ESP_LOGE(TAG, "At least one callback must be non-NULL");
         return ESP_ERR_INVALID_ARG;
     }
 
-    s_otp_callback = callback;
+    s_otp_callback = otp_callback;
+    s_uid_callback = uid_callback;
 
     BaseType_t ret = xTaskCreate(
         nfc_polling_task,
@@ -202,6 +204,7 @@ void nfc_handler_deinit(void)
         i2c_driver_delete(I2C_MASTER_NUM);
         s_initialized = false;
         s_otp_callback = NULL;
+        s_uid_callback = NULL;
         ESP_LOGI(TAG, "NFC handler deinitialized");
     }
 }
@@ -230,6 +233,8 @@ static void nfc_polling_task(void *pvParameters)
             /* Try to read NDEF data from tag */
             uint8_t ndef_data[256];
             size_t ndef_len = sizeof(ndef_data);
+            bool ndef_success = false;
+            bool otp_found = false;
             
             /* Select NDEF application and read */
             /* For YubiKey, we need to select the NDEF application first */
@@ -243,6 +248,7 @@ static void nfc_polling_task(void *pvParameters)
                 /* Check for success status (90 00) */
                 if (ndef_data[ndef_len-2] == 0x90 && ndef_data[ndef_len-1] == 0x00) {
                     ESP_LOGI(TAG, "NDEF application selected");
+                    ndef_success = true;
                     
                     /* Select NDEF file (CC file first) */
                     uint8_t select_cc[] = {0x00, 0xA4, 0x00, 0x0C, 0x02, 0xE1, 0x03};
@@ -284,6 +290,7 @@ static void nfc_polling_task(void *pvParameters)
                                     if (text_len > 0) {
                                         otp_buffer[text_len] = '\0';
                                         ESP_LOGI(TAG, "OTP extracted: %s", otp_buffer);
+                                        otp_found = true;
                                         
                                         if (s_otp_callback != NULL) {
                                             s_otp_callback(otp_buffer, text_len);
@@ -294,6 +301,17 @@ static void nfc_polling_task(void *pvParameters)
                         }
                     }
                 }
+            }
+            
+            /*
+             * Fallback to UID callback when:
+             *  - NDEF application selection failed (plain MIFARE Classic), OR
+             *  - NDEF was selected but no OTP could be extracted
+             */
+            if ((!ndef_success || !otp_found) && s_uid_callback != NULL) {
+                ESP_LOGI(TAG, "Using UID callback (ndef=%d, otp=%d)",
+                         ndef_success, otp_found);
+                s_uid_callback(uid, uid_len);
             }
             
             /* Wait before next poll to avoid reading same tag multiple times */
