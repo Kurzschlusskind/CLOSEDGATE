@@ -66,6 +66,7 @@ static esp_err_t pn532_read_response(uint8_t *resp, size_t *resp_len, uint32_t t
 static esp_err_t pn532_send_command_check_ack(const uint8_t *cmd, size_t cmd_len);
 static esp_err_t pn532_get_firmware_version(uint32_t *version);
 static esp_err_t pn532_sam_configuration(void);
+static esp_err_t pn532_rf_configuration_retries(void);
 static esp_err_t pn532_read_passive_target(uint8_t *uid, size_t *uid_len);
 static esp_err_t pn532_in_data_exchange(const uint8_t *send, size_t send_len,
                                         uint8_t *response, size_t *response_len);
@@ -107,7 +108,7 @@ esp_err_t nfc_handler_init(int sda_gpio, int scl_gpio)
     }
 
     /* Wait for PN532 to boot */
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(200));
 
     /* Get firmware version to verify communication */
     uint32_t version = 0;
@@ -126,6 +127,13 @@ esp_err_t nfc_handler_init(int sda_gpio, int scl_gpio)
         ESP_LOGE(TAG, "Failed to configure PN532 SAM");
         i2c_driver_delete(I2C_MASTER_NUM);
         return ret;
+    }
+
+    /* Set MxRtyPassiveActivation=0: InListPassiveTarget returns immediately
+     * when no card is in field instead of blocking until one appears. */
+    ret = pn532_rf_configuration_retries();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "RF MaxRetries config failed (non-fatal): %s", esp_err_to_name(ret));
     }
 
     ESP_LOGI(TAG, "PN532 initialized successfully");
@@ -153,6 +161,10 @@ esp_err_t nfc_handler_start(nfc_otp_callback_t otp_callback, nfc_uid_callback_t 
     s_otp_callback = otp_callback;
     s_uid_callback = uid_callback;
 
+    /* Set s_running BEFORE xTaskCreate to avoid race condition:
+     * NFC task has higher priority and runs immediately, checking s_running */
+    s_running = true;
+
     BaseType_t ret = xTaskCreate(
         nfc_polling_task,
         "nfc_poll",
@@ -164,10 +176,9 @@ esp_err_t nfc_handler_start(nfc_otp_callback_t otp_callback, nfc_uid_callback_t 
 
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create NFC polling task");
+        s_running = false;
         return ESP_ERR_NO_MEM;
     }
-
-    s_running = true;
     ESP_LOGI(TAG, "NFC polling task started");
     return ESP_OK;
 }
@@ -221,11 +232,18 @@ static void nfc_polling_task(void *pvParameters)
 
     ESP_LOGI(TAG, "NFC polling task running (interval=%"PRIu32"ms)", poll_interval);
 
+    uint32_t poll_count = 0;
     while (s_running) {
         uid_len = sizeof(uid);
+        poll_count++;
         
         /* Try to detect ISO14443A target */
         esp_err_t ret = pn532_read_passive_target(uid, &uid_len);
+        
+        /* Only log unexpected errors, not the normal no-card case */
+        if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND && ret != ESP_ERR_TIMEOUT) {
+            ESP_LOGW(TAG, "POLL #%"PRIu32": %s", poll_count, esp_err_to_name(ret));
+        }
         
         if (ret == ESP_OK && uid_len > 0) {
             ESP_LOGI(TAG, "NFC tag detected, UID length: %d", (int)uid_len);
@@ -503,8 +521,8 @@ static esp_err_t pn532_get_firmware_version(uint32_t *version)
 
 static esp_err_t pn532_sam_configuration(void)
 {
-    /* SAMConfiguration: Normal mode, timeout 1s, use IRQ */
-    uint8_t cmd[] = {PN532_CMD_SAMCONFIGURATION, 0x01, 0x14, 0x01};
+    /* SAMConfiguration: Normal mode, timeout 1s, NO IRQ (we poll via I2C) */
+    uint8_t cmd[] = {PN532_CMD_SAMCONFIGURATION, 0x01, 0x14, 0x00};
     
     esp_err_t ret = pn532_send_command_check_ack(cmd, sizeof(cmd));
     if (ret != ESP_OK) {
@@ -534,17 +552,22 @@ static esp_err_t pn532_read_passive_target(uint8_t *uid, size_t *uid_len)
     
     esp_err_t ret = pn532_send_command_check_ack(cmd, sizeof(cmd));
     if (ret != ESP_OK) {
+        ESP_LOGD(TAG, "InListPassiveTarget ACK failed: %s", esp_err_to_name(ret));
         return ret;
     }
     
-    uint8_t resp[32];
+    uint8_t resp[64];
     size_t resp_len = sizeof(resp);
+    /* With MxRtyPassiveActivation=0 the PN532 returns within ~50ms.
+     * 500ms is a generous upper bound. */
     ret = pn532_read_response(resp, &resp_len, 500);
     if (ret != ESP_OK) {
         return ret;
     }
     
     if (resp_len < 1 || resp[0] != PN532_RSP_INLISTPASSIVETARGET) {
+        ESP_LOGW(TAG, "Bad response code: 0x%02X (expected 0x%02X)", 
+                 resp_len > 0 ? resp[0] : 0, PN532_RSP_INLISTPASSIVETARGET);
         return ESP_ERR_INVALID_RESPONSE;
     }
     
@@ -554,16 +577,72 @@ static esp_err_t pn532_read_passive_target(uint8_t *uid, size_t *uid_len)
         return ESP_ERR_NOT_FOUND;
     }
     
-    /* Parse target data */
-    if (resp_len >= 7) {
-        size_t nfcid_len = resp[5];
+    /*
+     * InListPassiveTarget response for ISO14443A:
+     *   resp[0] = 0x4B (response code)
+     *   resp[1] = NbTg (number of targets detected)
+     *   resp[2] = Tg   (target number, 01)
+     *   resp[3] = SENS_RES (ATQA) byte 1
+     *   resp[4] = SENS_RES (ATQA) byte 2
+     *   resp[5] = SEL_RES  (SAK)
+     *   resp[6] = NFCIDLength
+     *   resp[7..] = NFCID (UID bytes)
+     */
+    if (resp_len >= 8) {
+        uint8_t sak = resp[5];
+        size_t nfcid_len = resp[6];
+        ESP_LOGI(TAG, "Card: ATQA=%02X%02X SAK=%02X UID_len=%d",
+                 resp[3], resp[4], sak, (int)nfcid_len);
+        
+        if (nfcid_len == 0 || nfcid_len > 10) {
+            ESP_LOGW(TAG, "Invalid NFCID length: %d", (int)nfcid_len);
+            *uid_len = 0;
+            return ESP_ERR_INVALID_RESPONSE;
+        }
         if (nfcid_len > *uid_len) {
             nfcid_len = *uid_len;
         }
-        memcpy(uid, &resp[6], nfcid_len);
-        *uid_len = nfcid_len;
+        if (resp_len >= 7 + nfcid_len) {
+            memcpy(uid, &resp[7], nfcid_len);
+            *uid_len = nfcid_len;
+        } else {
+            ESP_LOGW(TAG, "Response too short for UID");
+            *uid_len = 0;
+            return ESP_ERR_INVALID_SIZE;
+        }
+    } else {
+        ESP_LOGW(TAG, "Response too short: %d bytes", (int)resp_len);
+        *uid_len = 0;
+        return ESP_ERR_INVALID_SIZE;
     }
     
+    return ESP_OK;
+}
+
+static esp_err_t pn532_rf_configuration_retries(void)
+{
+    /* RFConfiguration CfgItem=0x05 (MaxRetries):
+     * MxRtyATR=0xFF, MxRtyPSL=0x01, MxRtyPassiveActivation=0x00
+     * With PassiveActivation=0, InListPassiveTarget does a single RF poll
+     * and returns NbTg=0 immediately if no card is in field. */
+    uint8_t cmd[] = {0x32, 0x05, 0xFF, 0x01, 0x00};
+
+    esp_err_t ret = pn532_send_command_check_ack(cmd, sizeof(cmd));
+    if (ret != ESP_OK) return ret;
+
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    uint8_t resp[8];
+    size_t resp_len = sizeof(resp);
+    ret = pn532_read_response(resp, &resp_len, 1000);
+    if (ret != ESP_OK) return ret;
+
+    /* Response code is command + 1 = 0x33 */
+    if (resp_len < 1 || resp[0] != 0x33) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    ESP_LOGI(TAG, "PN532 passive activation retries set to 0");
     return ESP_OK;
 }
 

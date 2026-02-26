@@ -31,32 +31,39 @@ typedef struct {
 } buzzer_tone_t;
 
 /* Pattern definitions */
+
+/* Short single blip: card was read */
 static const buzzer_tone_t s_pattern_card_detected[] = {
-    { 2000, 80, 0 },
+    { 1800, 55, 0 },
 };
 
+/* ACCESS GRANTED: rising do-mi-sol arpeggio — unmistakably positive */
 static const buzzer_tone_t s_pattern_access_granted[] = {
-    { 1000, 120, 50 },
-    { 2000, 120, 0 },
+    {  784, 120, 25 },   /* G5 */
+    { 1047, 120, 25 },   /* C6 */
+    { 1568, 320, 0  },   /* G6 — long final note */
 };
 
+/* ACCESS DENIED: two short stabs then a long low groan — unmistakably negative */
 static const buzzer_tone_t s_pattern_access_denied[] = {
-    { 2000, 150, 80 },
-    { 1500, 150, 80 },
-    {  800, 300, 0 },
+    { 1200, 90,  60 },
+    { 1200, 90,  60 },
+    {  300, 480, 0  },   /* deep low buzz */
 };
 
+/* SYSTEM ERROR: rapid high triple beep — "hardware problem" */
 static const buzzer_tone_t s_pattern_error[] = {
-    { 3000, 50, 50 },
-    { 3000, 50, 50 },
-    { 3000, 50, 0 },
+    { 3500, 70, 45 },
+    { 3500, 70, 45 },
+    { 3500, 70, 0  },
 };
 
+/* BOOT OK: short ascending chime */
 static const buzzer_tone_t s_pattern_boot_ok[] = {
-    {  800, 100, 0 },
-    { 1200, 100, 0 },
-    { 1600, 100, 0 },
-    { 2400, 200, 0 },
+    {  800, 80,  0 },
+    { 1200, 80,  0 },
+    { 1600, 80,  0 },
+    { 2400, 180, 0 },
 };
 
 static const buzzer_tone_t s_pattern_wifi_connected[] = {

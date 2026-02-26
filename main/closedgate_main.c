@@ -17,6 +17,8 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_event.h"
+#include "esp_timer.h"
+#include "driver/gpio.h"
 
 #include "nfc_handler.h"
 #include "relay_control.h"
@@ -36,6 +38,73 @@
 #endif
 
 static const char *TAG = "CLOSEDGATE";
+
+/* ============ Enroll Mode ============ */
+#ifdef CONFIG_CLOSEDGATE_ENROLL_ENABLED
+static volatile bool s_enroll_mode = false;
+static volatile int64_t s_enroll_deadline = 0;
+
+/**
+ * @brief Task that polls the BOOT button and manages enroll mode.
+ *
+ * Polling avoids ISR issues with esp_timer. Checks button every 50ms.
+ */
+static void enroll_button_task(void *pvParameters)
+{
+    (void)pvParameters;
+    bool last_level = true;  /* Pull-up = HIGH when not pressed */
+
+    while (1) {
+        bool level = gpio_get_level(CONFIG_CLOSEDGATE_ENROLL_GPIO);
+
+        /* Detect falling edge (button just pressed) */
+        if (last_level && !level) {
+            if (!s_enroll_mode) {
+                s_enroll_mode = true;
+                s_enroll_deadline = esp_timer_get_time() +
+                    (int64_t)CONFIG_CLOSEDGATE_ENROLL_TIMEOUT_S * 1000000LL;
+                ESP_LOGW(TAG, ">>> ENROLL MODE ACTIVE for %ds - tap a card now! <<<",
+                         CONFIG_CLOSEDGATE_ENROLL_TIMEOUT_S);
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED)
+                /* Short beep to confirm enroll mode */
+                buzzer_play_tone(1000, 150);
+#endif
+            }
+        }
+        last_level = level;
+
+        /* Check timeout */
+        if (s_enroll_mode && esp_timer_get_time() >= s_enroll_deadline) {
+            s_enroll_mode = false;
+            ESP_LOGI(TAG, ">>> ENROLL MODE TIMEOUT - back to normal <<<");
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED)
+                buzzer_play_tone(400, 200);
+#endif
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+static void enroll_init(void)
+{
+    /* Configure enroll button GPIO (input with pull-up, no interrupt) */
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << CONFIG_CLOSEDGATE_ENROLL_GPIO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+
+    /* Create polling task */
+    xTaskCreate(enroll_button_task, "enroll_btn", 2048, NULL, 3, NULL);
+
+    ESP_LOGI(TAG, "Enroll button initialized on GPIO %d (timeout %ds)",
+             CONFIG_CLOSEDGATE_ENROLL_GPIO, CONFIG_CLOSEDGATE_ENROLL_TIMEOUT_S);
+}
+#endif /* CONFIG_CLOSEDGATE_ENROLL_ENABLED */
 
 #ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
 /* OTP processing queue */
@@ -125,36 +194,40 @@ void app_main(void)
 #endif
 
 #ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
-    /* Initialize WiFi manager */
-    ESP_LOGI(TAG, "Initializing WiFi manager...");
-    ret = wifi_manager_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "WiFi manager init failed: %s", esp_err_to_name(ret));
-        esp_restart();
-    }
+    /* Only attempt WiFi if a real SSID is configured (not the default placeholder) */
+    if (strcmp(CONFIG_CLOSEDGATE_WIFI_SSID, "YourWiFiSSID") != 0 &&
+        strlen(CONFIG_CLOSEDGATE_WIFI_SSID) > 0) {
 
-    /* Start WiFi connection */
-    ESP_LOGI(TAG, "Connecting to WiFi: %s", CONFIG_CLOSEDGATE_WIFI_SSID);
-    ret = wifi_manager_start(CONFIG_CLOSEDGATE_WIFI_SSID,
-                             CONFIG_CLOSEDGATE_WIFI_PASSWORD,
-                             wifi_state_changed);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "WiFi start failed: %s", esp_err_to_name(ret));
-        esp_restart();
-    }
+        ESP_LOGI(TAG, "Initializing WiFi manager...");
+        ret = wifi_manager_init();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "WiFi manager init failed: %s", esp_err_to_name(ret));
+        } else {
+            ESP_LOGI(TAG, "Connecting to WiFi: %s", CONFIG_CLOSEDGATE_WIFI_SSID);
+            ret = wifi_manager_start(CONFIG_CLOSEDGATE_WIFI_SSID,
+                                     CONFIG_CLOSEDGATE_WIFI_PASSWORD,
+                                     wifi_state_changed);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "WiFi start failed: %s", esp_err_to_name(ret));
+            } else {
+                /* Short timeout - don't block forever */
+                ret = wifi_manager_wait_connected(5000);
+                if (ret != ESP_OK) {
+                    ESP_LOGW(TAG, "WiFi not connected yet, continuing (will retry in background)");
+                }
+            }
+        }
 
-    /* Wait for WiFi connection (30 second timeout) */
-    ret = wifi_manager_wait_connected(30000);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "WiFi connection timeout, continuing anyway...");
-    }
-
-    /* Initialize Yubico verification client */
-    ESP_LOGI(TAG, "Initializing Yubico verification client...");
-    ret = yubikey_verify_init(CONFIG_CLOSEDGATE_YUBICO_CLIENT_ID);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Yubico verify init failed: %s", esp_err_to_name(ret));
-        ESP_LOGW(TAG, "Continuing without OTP verification capability");
+        /* Initialize Yubico verification client */
+        ESP_LOGI(TAG, "Initializing Yubico verification client...");
+        ret = yubikey_verify_init(CONFIG_CLOSEDGATE_YUBICO_CLIENT_ID);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Yubico verify init failed: %s", esp_err_to_name(ret));
+            ESP_LOGW(TAG, "Continuing without OTP verification capability");
+        }
+    } else {
+        ESP_LOGW(TAG, "WiFi SSID not configured - skipping WiFi & YubiKey OTP");
+        ESP_LOGW(TAG, "Use 'idf.py menuconfig' to set WiFi credentials");
     }
 #endif /* CONFIG_CLOSEDGATE_YUBIKEY_ENABLED */
 
@@ -169,6 +242,11 @@ void app_main(void)
         ESP_LOGI(TAG, "MIFARE whitelist: %d UID(s) loaded", mifare_auth_get_uid_count());
     }
 #endif /* CONFIG_CLOSEDGATE_MIFARE_ENABLED */
+
+#ifdef CONFIG_CLOSEDGATE_ENROLL_ENABLED
+    /* Initialize enroll button */
+    enroll_init();
+#endif
 
     /* Initialize NFC handler */
     ESP_LOGI(TAG, "Initializing NFC handler...");
@@ -226,6 +304,9 @@ void app_main(void)
 #ifdef CONFIG_CLOSEDGATE_MIFARE_ENABLED
     ESP_LOGI(TAG, "  MIFARE Classic: active");
 #endif
+#ifdef CONFIG_CLOSEDGATE_ENROLL_ENABLED
+    ESP_LOGI(TAG, "  Enroll: press BOOT button + tap card");
+#endif
     ESP_LOGI(TAG, "  Waiting for NFC tap...");
     ESP_LOGI(TAG, "============================================");
 
@@ -236,14 +317,20 @@ void app_main(void)
     /* Main loop - monitor system status */
     while (1) {
         /* Periodic status logging */
-        ESP_LOGI(TAG, "Status: WiFi=%s, NFC=%s, Relay=%s",
+        ESP_LOGI(TAG, "Status: WiFi=%s, NFC=%s, Relay=%s, Enroll=%s",
 #ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
                  wifi_manager_is_connected() ? "Connected" : "Disconnected",
 #else
                  "N/A",
 #endif
                  nfc_handler_is_running() ? "Running" : "Stopped",
-                 relay_control_is_active() ? "Active" : "Idle");
+                 relay_control_is_active() ? "Active" : "Idle",
+#ifdef CONFIG_CLOSEDGATE_ENROLL_ENABLED
+                 s_enroll_mode ? "ACTIVE" : "Off"
+#else
+                 "N/A"
+#endif
+                 );
         
         vTaskDelay(pdMS_TO_TICKS(60000));  /* Log every 60 seconds */
     }
@@ -296,13 +383,49 @@ static void uid_received_callback(const uint8_t *uid, size_t uid_len)
         return;
     }
 
-    ESP_LOGI(TAG, "UID received from NFC (len=%d)", (int)uid_len);
+    /* Print UID in hex for debugging/manual use */
+    char uid_hex[15] = {0};
+    for (size_t i = 0; i < uid_len && i < 7; i++) {
+        sprintf(&uid_hex[i * 2], "%02X", uid[i]);
+    }
+    ESP_LOGI(TAG, "UID received from NFC: %s (len=%d)", uid_hex, (int)uid_len);
+
+#ifdef CONFIG_CLOSEDGATE_ENROLL_ENABLED
+    /* ENROLL MODE: add card to whitelist instead of checking */
+    if (s_enroll_mode) {
+        s_enroll_mode = false;  /* One-shot: exit enroll after one card */
+
+        esp_err_t ret = mifare_auth_add_uid(uid, uid_len);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, ">>> ENROLLED: UID %s added to whitelist (%d total) <<<",
+                     uid_hex, mifare_auth_get_uid_count());
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ACCESS_SOUND)
+            /* Double beep = enrolled successfully */
+            buzzer_play_pattern(BUZZER_PATTERN_ACCESS_GRANTED);
+            vTaskDelay(pdMS_TO_TICKS(300));
+            buzzer_play_pattern(BUZZER_PATTERN_ACCESS_GRANTED);
+#endif
+        } else {
+            ESP_LOGE(TAG, ">>> ENROLL FAILED: %s <<<", esp_err_to_name(ret));
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ERROR_SOUND)
+            buzzer_play_pattern(BUZZER_PATTERN_ERROR);
+#endif
+        }
+        return;
+    }
+#endif /* CONFIG_CLOSEDGATE_ENROLL_ENABLED */
 
     if (mifare_auth_check_uid(uid, uid_len)) {
         ESP_LOGI(TAG, "=== ACCESS GRANTED (MIFARE) ===");
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ACCESS_SOUND)
+        buzzer_play_pattern(BUZZER_PATTERN_ACCESS_GRANTED);
+#endif
         relay_control_trigger();
     } else {
-        ESP_LOGW(TAG, "=== ACCESS DENIED: UID not in whitelist ===");
+        ESP_LOGW(TAG, "=== ACCESS DENIED: UID %s not in whitelist ===", uid_hex);
+#if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ACCESS_SOUND)
+        buzzer_play_pattern(BUZZER_PATTERN_ACCESS_DENIED);
+#endif
     }
 }
 #endif /* CONFIG_CLOSEDGATE_MIFARE_ENABLED */

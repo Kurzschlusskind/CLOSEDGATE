@@ -1,2 +1,177 @@
-# Component-specific Kconfig is inherited from project root
-# Additional component options can be added here if needed
+menu "CLOSEDGATE Configuration"
+
+    config CLOSEDGATE_YUBIKEY_ENABLED
+        bool "Enable YubiKey OTP Authentication"
+        default y
+        help
+            Enable YubiKey NFC OTP authentication via Yubico Cloud API.
+            Requires WiFi connection and valid Yubico Client ID.
+
+    config CLOSEDGATE_MIFARE_ENABLED
+        bool "Enable MIFARE Classic Authentication"
+        default y
+        help
+            Enable MIFARE Classic card authentication via UID whitelist.
+            Works offline without WiFi connection.
+
+    config CLOSEDGATE_MIFARE_MAX_UIDS
+        int "Maximum number of stored MIFARE UIDs"
+        default 20
+        range 1 100
+        depends on CLOSEDGATE_MIFARE_ENABLED
+        help
+            Maximum number of MIFARE Classic card UIDs that can be stored
+            in the whitelist (stored in NVS).
+
+    config CLOSEDGATE_MIFARE_DEFAULT_UIDS
+        string "Default MIFARE UIDs (comma-separated hex)"
+        default ""
+        depends on CLOSEDGATE_MIFARE_ENABLED
+        help
+            Comma-separated list of default MIFARE Classic UIDs in hex format.
+            Example: "A1B2C3D4,11223344AABBCCDD"
+            These UIDs are loaded on first boot if NVS is empty.
+
+    config CLOSEDGATE_WIFI_SSID
+        string "WiFi SSID"
+        default "YourWiFiSSID"
+        help
+            WiFi network name (SSID) to connect to.
+
+    config CLOSEDGATE_WIFI_PASSWORD
+        string "WiFi Password"
+        default "YourWiFiPassword"
+        help
+            WiFi network password (WPA2).
+
+    config CLOSEDGATE_YUBICO_CLIENT_ID
+        string "Yubico Client ID"
+        default ""
+        depends on CLOSEDGATE_YUBIKEY_ENABLED
+        help
+            Your Yubico API Client ID.
+            Register at https://upgrade.yubico.com/getapikey/
+
+    config CLOSEDGATE_RELAY_GPIO
+        int "Relay GPIO"
+        default 6
+        range 0 21
+        help
+            GPIO pin connected to the relay (Active-High).
+
+    config CLOSEDGATE_RELAY_PULSE_MS
+        int "Relay Pulse Duration (ms)"
+        default 3000
+        range 100 30000
+        help
+            Duration of the relay activation pulse in milliseconds.
+
+    config CLOSEDGATE_NFC_SDA_GPIO
+        int "NFC I2C SDA GPIO"
+        default 4
+        range 0 21
+        help
+            GPIO pin for I2C SDA (PN532 NFC module).
+
+    config CLOSEDGATE_NFC_SCL_GPIO
+        int "NFC I2C SCL GPIO"
+        default 5
+        range 0 21
+        help
+            GPIO pin for I2C SCL (PN532 NFC module).
+
+    config CLOSEDGATE_NFC_POLL_INTERVAL_MS
+        int "NFC Polling Interval (ms)"
+        default 500
+        range 100 5000
+        help
+            Interval between NFC tag polling attempts in milliseconds.
+
+    config CLOSEDGATE_HTTP_RETRY_COUNT
+        int "HTTP Retry Count"
+        default 3
+        range 1 10
+        help
+            Number of retry attempts for HTTP requests.
+
+    config CLOSEDGATE_WIFI_RECONNECT_MAX_RETRY
+        int "WiFi Reconnect Max Retries"
+        default 10
+        range 1 100
+        help
+            Maximum number of WiFi reconnection attempts before giving up.
+
+    config CLOSEDGATE_ENROLL_ENABLED
+        bool "Enable card enroll mode via button"
+        default y
+        depends on CLOSEDGATE_MIFARE_ENABLED
+        help
+            Enable enrolling new MIFARE cards by pressing a button.
+            Hold the button and tap a card to add it to the whitelist.
+
+    config CLOSEDGATE_ENROLL_GPIO
+        int "Enroll Button GPIO"
+        default 9
+        range 0 21
+        depends on CLOSEDGATE_ENROLL_ENABLED
+        help
+            GPIO pin for the enroll button. Default 9 is the BOOT button
+            on most ESP32-C3 boards. Active-low (pressed = LOW).
+
+    config CLOSEDGATE_ENROLL_TIMEOUT_S
+        int "Enroll mode timeout (seconds)"
+        default 10
+        range 5 60
+        depends on CLOSEDGATE_ENROLL_ENABLED
+        help
+            How long the enroll mode stays active after button press.
+
+    config CLOSEDGATE_BUZZER_ENABLED
+        bool "Enable Piezo Buzzer"
+        default y
+        help
+            Enable passive piezo buzzer for acoustic feedback.
+            Requires a 3-pin passive piezo buzzer connected to the configured GPIO.
+
+    config CLOSEDGATE_BUZZER_GPIO
+        int "Buzzer GPIO"
+        default 7
+        range 0 21
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            GPIO pin connected to the piezo buzzer signal pin.
+
+    config CLOSEDGATE_BUZZER_VOLUME
+        int "Buzzer Volume (Duty Cycle %)"
+        default 50
+        range 10 100
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            Buzzer volume as LEDC duty cycle percentage.
+
+    config CLOSEDGATE_BUZZER_BOOT_SOUND
+        bool "Play sound on boot"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+
+    config CLOSEDGATE_BUZZER_CARD_SOUND
+        bool "Play sound on card detection"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+
+    config CLOSEDGATE_BUZZER_ACCESS_SOUND
+        bool "Play sound on access granted/denied"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+
+    config CLOSEDGATE_BUZZER_WIFI_SOUND
+        bool "Play sound on WiFi events"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+
+    config CLOSEDGATE_BUZZER_ERROR_SOUND
+        bool "Play sound on errors"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+
+endmenu
