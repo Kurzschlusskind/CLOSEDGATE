@@ -8,6 +8,7 @@ idf_component_register(
         "wifi_manager.c"
         "relay_control.c"
         "mifare_auth.c"
+        "buzzer.c"
     INCLUDE_DIRS
         "."
     REQUIRES

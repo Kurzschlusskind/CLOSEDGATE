@@ -20,6 +20,7 @@ ESP32 YubiKey NFC Access Controller - Secure, cryptographically validated access
 | ESP32 | Development board (e.g., ESP32-DevKitC) | 1 |
 | PN532 | NFC/RFID module with I2C interface | 1 |
 | Relay Module | 5V relay module (Active-High) | 1 |
+| Piezo Buzzer | Passive 3-pin piezo buzzer | 1 |
 | YubiKey 5 NFC | YubiKey with NFC capability | 1 |
 | Power Supply | 5V power supply | 1 |
 
@@ -44,6 +45,15 @@ ESP32                    Relay Module
 │      GND├──────────────┤GND          │
 │         │              │             │
 └─────────┘              └─────────────┘
+
+ESP32                    Piezo Buzzer (passive, 3-pin)
+┌─────────┐              ┌─────────────┐
+│         │              │             │
+│   GPIO25├──────────────┤Signal       │
+│     3.3V├──────────────┤VCC          │
+│      GND├──────────────┤GND          │
+│         │              │             │
+└─────────┘              └─────────────┘
 ```
 
 ### Default GPIO Configuration
@@ -53,6 +63,7 @@ ESP32                    Relay Module
 | I2C SDA | GPIO21 | NFC module data line |
 | I2C SCL | GPIO22 | NFC module clock line |
 | Relay | GPIO26 | Relay control (Active-High) |
+| Buzzer | GPIO25 | Piezo buzzer signal pin |
 
 ## Software Requirements
 
@@ -174,6 +185,26 @@ To use the Yubico Cloud API for OTP verification, you need to register for a fre
 | `CLOSEDGATE_NFC_POLL_INTERVAL_MS` | 500 | NFC polling interval |
 | `CLOSEDGATE_HTTP_RETRY_COUNT` | 3 | HTTP request retries |
 | `CLOSEDGATE_WIFI_RECONNECT_MAX_RETRY` | 10 | Max WiFi reconnect attempts |
+| `CLOSEDGATE_BUZZER_ENABLED` | y | Enable piezo buzzer |
+| `CLOSEDGATE_BUZZER_GPIO` | 25 | Buzzer signal GPIO pin |
+| `CLOSEDGATE_BUZZER_VOLUME` | 50 | Buzzer volume (duty cycle %) |
+| `CLOSEDGATE_BUZZER_BOOT_SOUND` | y | Play sound on boot |
+| `CLOSEDGATE_BUZZER_CARD_SOUND` | y | Play sound on card detection |
+| `CLOSEDGATE_BUZZER_ACCESS_SOUND` | y | Play sound on access granted/denied |
+| `CLOSEDGATE_BUZZER_WIFI_SOUND` | y | Play sound on WiFi events |
+| `CLOSEDGATE_BUZZER_ERROR_SOUND` | y | Play sound on errors |
+
+### Buzzer Sound Patterns
+
+| Pattern | Event | Description |
+|---------|-------|-------------|
+| BOOT_OK | System boot | Ascending melody: 800 Hz → 1200 Hz → 1600 Hz → 2400 Hz |
+| CARD_DETECTED | NFC card detected | 1× short beep: 2000 Hz 80 ms |
+| ACCESS_GRANTED | Access granted | 2× ascending: 1000 Hz then 2000 Hz |
+| ACCESS_DENIED | Access denied | 3× descending: 2000 Hz → 1500 Hz → 800 Hz |
+| ERROR | System error | 3× fast beep: 3000 Hz |
+| WIFI_CONNECTED | WiFi connected | 2× same tone: 1500 Hz |
+| WIFI_DISCONNECTED | WiFi failed | 1× long low tone: 500 Hz 400 ms |
 
 ## Troubleshooting
 
@@ -266,7 +297,9 @@ CLOSEDGATE/
 │   ├── wifi_manager.c          # WiFi with reconnect
 │   ├── wifi_manager.h
 │   ├── relay_control.c         # Relay control
-│   └── relay_control.h
+│   ├── relay_control.h
+│   ├── buzzer.c                # Piezo buzzer (LEDC PWM)
+│   └── buzzer.h
 └── README.md                   # This file
 ```
 

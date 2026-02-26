@@ -101,4 +101,65 @@ menu "CLOSEDGATE Configuration"
         help
             Maximum number of WiFi reconnection attempts before giving up.
 
+    config CLOSEDGATE_BUZZER_ENABLED
+        bool "Enable Piezo Buzzer"
+        default y
+        help
+            Enable passive piezo buzzer for acoustic feedback.
+            Requires a 3-pin passive piezo buzzer connected to the configured GPIO.
+
+    config CLOSEDGATE_BUZZER_GPIO
+        int "Buzzer GPIO"
+        default 25
+        range 0 39
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            GPIO pin connected to the piezo buzzer signal pin.
+            Default: GPIO25.
+
+    config CLOSEDGATE_BUZZER_VOLUME
+        int "Buzzer Volume (Duty Cycle %)"
+        default 50
+        range 10 100
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            Buzzer volume as LEDC duty cycle percentage.
+            50% gives maximum volume for passive piezo buzzers.
+            Lower values reduce volume.
+
+    config CLOSEDGATE_BUZZER_BOOT_SOUND
+        bool "Play sound on boot"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            Play a startup melody when the system boots successfully.
+
+    config CLOSEDGATE_BUZZER_CARD_SOUND
+        bool "Play sound on card detection"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            Play a short beep when an NFC card/tag is detected.
+
+    config CLOSEDGATE_BUZZER_ACCESS_SOUND
+        bool "Play sound on access granted/denied"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            Play distinct sounds for access granted and access denied events.
+
+    config CLOSEDGATE_BUZZER_WIFI_SOUND
+        bool "Play sound on WiFi events"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            Play sounds when WiFi connects or disconnects.
+
+    config CLOSEDGATE_BUZZER_ERROR_SOUND
+        bool "Play sound on errors"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            Play error sound pattern on system errors.
+
 endmenu
