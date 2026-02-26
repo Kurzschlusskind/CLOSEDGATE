@@ -2,8 +2,10 @@
  * @file closedgate_main.c
  * @brief CLOSEDGATE Main Application
  * 
- * ESP32 YubiKey NFC Access Controller main application.
- * Coordinates NFC polling, OTP verification, and relay control.
+ * ESP32 NFC Access Controller main application.
+ * Coordinates NFC polling, OTP/UID authentication, and relay control.
+ * Supports YubiKey OTP (via Yubico Cloud API) and MIFARE Classic cards
+ * (via local UID whitelist). Both modes can be enabled/disabled via Kconfig.
  */
 
 #include <stdio.h>
@@ -17,13 +19,21 @@
 #include "esp_event.h"
 
 #include "nfc_handler.h"
-#include "yubikey_verify.h"
-#include "wifi_manager.h"
 #include "relay_control.h"
 #include "sdkconfig.h"
 
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
+#include "yubikey_verify.h"
+#include "wifi_manager.h"
+#endif
+
+#ifdef CONFIG_CLOSEDGATE_MIFARE_ENABLED
+#include "mifare_auth.h"
+#endif
+
 static const char *TAG = "CLOSEDGATE";
 
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
 /* OTP processing queue */
 #define OTP_QUEUE_SIZE 4
 static QueueHandle_t s_otp_queue = NULL;
@@ -33,12 +43,20 @@ typedef struct {
     char otp[NFC_OTP_MAX_LEN];
     size_t len;
 } otp_item_t;
+#endif
 
 /* Forward declarations */
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
 static void otp_received_callback(const char *otp, size_t len);
 static void otp_processing_task(void *pvParameters);
-static esp_err_t init_nvs(void);
 static void wifi_state_changed(wifi_state_t state);
+#endif
+
+#ifdef CONFIG_CLOSEDGATE_MIFARE_ENABLED
+static void uid_received_callback(const uint8_t *uid, size_t uid_len);
+#endif
+
+static esp_err_t init_nvs(void);
 
 /**
  * @brief Application entry point
@@ -46,10 +64,21 @@ static void wifi_state_changed(wifi_state_t state);
 void app_main(void)
 {
     ESP_LOGI(TAG, "============================================");
-    ESP_LOGI(TAG, "  CLOSEDGATE - YubiKey NFC Access Controller");
+    ESP_LOGI(TAG, "  CLOSEDGATE - NFC Access Controller");
     ESP_LOGI(TAG, "============================================");
     ESP_LOGI(TAG, "Firmware version: 1.0.0");
     ESP_LOGI(TAG, "ESP-IDF version: %s", esp_get_idf_version());
+
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
+    ESP_LOGI(TAG, "Mode: YubiKey OTP enabled");
+#endif
+#ifdef CONFIG_CLOSEDGATE_MIFARE_ENABLED
+    ESP_LOGI(TAG, "Mode: MIFARE Classic UID enabled");
+#endif
+#if !defined(CONFIG_CLOSEDGATE_YUBIKEY_ENABLED) && !defined(CONFIG_CLOSEDGATE_MIFARE_ENABLED)
+    ESP_LOGE(TAG, "FATAL: Both YubiKey and MIFARE modes are disabled - no authentication possible!");
+    esp_restart();
+#endif
 
     /* Initialize NVS */
     esp_err_t ret = init_nvs();
@@ -65,12 +94,14 @@ void app_main(void)
         esp_restart();
     }
 
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
     /* Create OTP processing queue */
     s_otp_queue = xQueueCreate(OTP_QUEUE_SIZE, sizeof(otp_item_t));
     if (s_otp_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create OTP queue");
         esp_restart();
     }
+#endif
 
     /* Initialize relay control */
     ESP_LOGI(TAG, "Initializing relay control...");
@@ -81,6 +112,7 @@ void app_main(void)
         esp_restart();
     }
 
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
     /* Initialize WiFi manager */
     ESP_LOGI(TAG, "Initializing WiFi manager...");
     ret = wifi_manager_init();
@@ -112,6 +144,19 @@ void app_main(void)
         ESP_LOGE(TAG, "Yubico verify init failed: %s", esp_err_to_name(ret));
         ESP_LOGW(TAG, "Continuing without OTP verification capability");
     }
+#endif /* CONFIG_CLOSEDGATE_YUBIKEY_ENABLED */
+
+#ifdef CONFIG_CLOSEDGATE_MIFARE_ENABLED
+    /* Initialize MIFARE authentication */
+    ESP_LOGI(TAG, "Initializing MIFARE authentication...");
+    ret = mifare_auth_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "MIFARE auth init failed: %s", esp_err_to_name(ret));
+        ESP_LOGW(TAG, "Continuing without MIFARE authentication capability");
+    } else {
+        ESP_LOGI(TAG, "MIFARE whitelist: %d UID(s) loaded", mifare_auth_get_uid_count());
+    }
+#endif /* CONFIG_CLOSEDGATE_MIFARE_ENABLED */
 
     /* Initialize NFC handler */
     ESP_LOGI(TAG, "Initializing NFC handler...");
@@ -124,6 +169,7 @@ void app_main(void)
         /* Continue running to allow WiFi-based diagnostics */
     }
 
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
     /* Create OTP processing task */
     BaseType_t task_ret = xTaskCreate(
         otp_processing_task,
@@ -137,10 +183,22 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to create OTP processing task");
         esp_restart();
     }
+#endif
 
     /* Start NFC polling */
     if (nfc_handler_is_running() == false && ret == ESP_OK) {
-        ret = nfc_handler_start(otp_received_callback);
+        ret = nfc_handler_start(
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
+            otp_received_callback,
+#else
+            NULL,
+#endif
+#ifdef CONFIG_CLOSEDGATE_MIFARE_ENABLED
+            uid_received_callback
+#else
+            NULL
+#endif
+        );
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "NFC handler start failed: %s", esp_err_to_name(ret));
         } else {
@@ -150,14 +208,24 @@ void app_main(void)
 
     ESP_LOGI(TAG, "============================================");
     ESP_LOGI(TAG, "  CLOSEDGATE initialization complete");
-    ESP_LOGI(TAG, "  Waiting for YubiKey NFC tap...");
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
+    ESP_LOGI(TAG, "  YubiKey OTP: active");
+#endif
+#ifdef CONFIG_CLOSEDGATE_MIFARE_ENABLED
+    ESP_LOGI(TAG, "  MIFARE Classic: active");
+#endif
+    ESP_LOGI(TAG, "  Waiting for NFC tap...");
     ESP_LOGI(TAG, "============================================");
 
     /* Main loop - monitor system status */
     while (1) {
         /* Periodic status logging */
         ESP_LOGI(TAG, "Status: WiFi=%s, NFC=%s, Relay=%s",
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
                  wifi_manager_is_connected() ? "Connected" : "Disconnected",
+#else
+                 "N/A",
+#endif
                  nfc_handler_is_running() ? "Running" : "Stopped",
                  relay_control_is_active() ? "Active" : "Idle");
         
@@ -170,6 +238,7 @@ void app_main(void)
  * 
  * Called from NFC polling task context, queues OTP for processing.
  */
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
 static void otp_received_callback(const char *otp, size_t len)
 {
     if (otp == NULL || len == 0) {
@@ -192,12 +261,38 @@ static void otp_received_callback(const char *otp, size_t len)
         ESP_LOGW(TAG, "OTP queue full, discarding");
     }
 }
+#endif /* CONFIG_CLOSEDGATE_YUBIKEY_ENABLED */
+
+/**
+ * @brief Callback when a MIFARE Classic UID is received
+ *
+ * Called from NFC polling task context, checks UID against whitelist.
+ */
+#ifdef CONFIG_CLOSEDGATE_MIFARE_ENABLED
+static void uid_received_callback(const uint8_t *uid, size_t uid_len)
+{
+    if (uid == NULL || uid_len == 0) {
+        ESP_LOGW(TAG, "Received empty UID");
+        return;
+    }
+
+    ESP_LOGI(TAG, "UID received from NFC (len=%d)", (int)uid_len);
+
+    if (mifare_auth_check_uid(uid, uid_len)) {
+        ESP_LOGI(TAG, "=== ACCESS GRANTED (MIFARE) ===");
+        relay_control_trigger();
+    } else {
+        ESP_LOGW(TAG, "=== ACCESS DENIED: UID not in whitelist ===");
+    }
+}
+#endif /* CONFIG_CLOSEDGATE_MIFARE_ENABLED */
 
 /**
  * @brief Task for processing OTPs
  * 
  * Validates OTPs against Yubico API and triggers relay on success.
  */
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
 static void otp_processing_task(void *pvParameters)
 {
     (void)pvParameters;
@@ -249,6 +344,7 @@ static void otp_processing_task(void *pvParameters)
         }
     }
 }
+#endif /* CONFIG_CLOSEDGATE_YUBIKEY_ENABLED */
 
 /**
  * @brief Initialize NVS flash
@@ -276,6 +372,7 @@ static esp_err_t init_nvs(void)
 /**
  * @brief WiFi state change callback
  */
+#ifdef CONFIG_CLOSEDGATE_YUBIKEY_ENABLED
 static void wifi_state_changed(wifi_state_t state)
 {
     switch (state) {
@@ -293,3 +390,4 @@ static void wifi_state_changed(wifi_state_t state)
             break;
     }
 }
+#endif /* CONFIG_CLOSEDGATE_YUBIKEY_ENABLED */

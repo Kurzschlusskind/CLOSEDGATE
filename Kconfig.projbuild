@@ -1,5 +1,37 @@
 menu "CLOSEDGATE Configuration"
 
+    config CLOSEDGATE_YUBIKEY_ENABLED
+        bool "Enable YubiKey OTP Authentication"
+        default y
+        help
+            Enable YubiKey NFC OTP authentication via Yubico Cloud API.
+            Requires WiFi connection and valid Yubico Client ID.
+
+    config CLOSEDGATE_MIFARE_ENABLED
+        bool "Enable MIFARE Classic Authentication"
+        default y
+        help
+            Enable MIFARE Classic card authentication via UID whitelist.
+            Works offline without WiFi connection.
+
+    config CLOSEDGATE_MIFARE_MAX_UIDS
+        int "Maximum number of stored MIFARE UIDs"
+        default 20
+        range 1 100
+        depends on CLOSEDGATE_MIFARE_ENABLED
+        help
+            Maximum number of MIFARE Classic card UIDs that can be stored
+            in the whitelist (stored in NVS).
+
+    config CLOSEDGATE_MIFARE_DEFAULT_UIDS
+        string "Default MIFARE UIDs (comma-separated hex)"
+        default ""
+        depends on CLOSEDGATE_MIFARE_ENABLED
+        help
+            Comma-separated list of default MIFARE Classic UIDs in hex format.
+            Example: "A1B2C3D4,11223344AABBCCDD"
+            These UIDs are loaded on first boot if NVS is empty.
+
     config CLOSEDGATE_WIFI_SSID
         string "WiFi SSID"
         default "YourWiFiSSID"
@@ -15,6 +47,7 @@ menu "CLOSEDGATE Configuration"
     config CLOSEDGATE_YUBICO_CLIENT_ID
         string "Yubico Client ID"
         default ""
+        depends on CLOSEDGATE_YUBIKEY_ENABLED
         help
             Your Yubico API Client ID.
             Register at https://upgrade.yubico.com/getapikey/

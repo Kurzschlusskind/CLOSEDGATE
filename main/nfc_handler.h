@@ -1,9 +1,10 @@
 /**
  * @file nfc_handler.h
- * @brief PN532 NFC Handler for YubiKey OTP reading
- * 
+ * @brief PN532 NFC Handler for YubiKey OTP and MIFARE Classic UID reading
+ *
  * This module provides I2C communication with PN532 NFC reader,
- * NDEF message parsing, and OTP extraction from YubiKey 5 NFC.
+ * NDEF message parsing, OTP extraction from YubiKey 5 NFC, and
+ * raw UID delivery for MIFARE Classic cards.
  */
 
 #ifndef NFC_HANDLER_H
@@ -26,6 +27,9 @@ extern "C" {
 /** Callback function type for OTP received events */
 typedef void (*nfc_otp_callback_t)(const char *otp, size_t len);
 
+/** Callback function type for raw UID received events (MIFARE Classic etc.) */
+typedef void (*nfc_uid_callback_t)(const uint8_t *uid, size_t uid_len);
+
 /**
  * @brief Initialize the NFC handler
  * 
@@ -39,14 +43,18 @@ esp_err_t nfc_handler_init(int sda_gpio, int scl_gpio);
 
 /**
  * @brief Start the NFC polling task
- * 
+ *
  * Creates a FreeRTOS task that continuously polls for NFC tags.
- * When a YubiKey OTP is detected, the callback is invoked.
- * 
- * @param callback Function to call when OTP is read
+ * When a YubiKey OTP is detected the otp_callback is invoked.
+ * When a MIFARE Classic (or other non-NDEF) tag is detected the
+ * uid_callback is invoked with the raw UID bytes.
+ * Either callback may be NULL to disable that detection path.
+ *
+ * @param otp_callback Function to call when an OTP is read (may be NULL)
+ * @param uid_callback Function to call when a raw UID is read (may be NULL)
  * @return ESP_OK on success, error code otherwise
  */
-esp_err_t nfc_handler_start(nfc_otp_callback_t callback);
+esp_err_t nfc_handler_start(nfc_otp_callback_t otp_callback, nfc_uid_callback_t uid_callback);
 
 /**
  * @brief Stop the NFC polling task
