@@ -54,8 +54,8 @@ menu "CLOSEDGATE Configuration"
 
     config CLOSEDGATE_RELAY_GPIO
         int "Relay GPIO"
-        default 26
-        range 0 39
+        default 6
+        range 0 21
         help
             GPIO pin connected to the relay (Active-High).
 
@@ -68,15 +68,15 @@ menu "CLOSEDGATE Configuration"
 
     config CLOSEDGATE_NFC_SDA_GPIO
         int "NFC I2C SDA GPIO"
-        default 21
-        range 0 39
+        default 4
+        range 0 21
         help
             GPIO pin for I2C SDA (PN532 NFC module).
 
     config CLOSEDGATE_NFC_SCL_GPIO
         int "NFC I2C SCL GPIO"
-        default 22
-        range 0 39
+        default 5
+        range 0 21
         help
             GPIO pin for I2C SCL (PN532 NFC module).
 
@@ -100,5 +100,53 @@ menu "CLOSEDGATE Configuration"
         range 1 100
         help
             Maximum number of WiFi reconnection attempts before giving up.
+
+    config CLOSEDGATE_BUZZER_ENABLED
+        bool "Enable Piezo Buzzer"
+        default y
+        help
+            Enable passive piezo buzzer for acoustic feedback.
+            Requires a 3-pin passive piezo buzzer connected to the configured GPIO.
+
+    config CLOSEDGATE_BUZZER_GPIO
+        int "Buzzer GPIO"
+        default 7
+        range 0 21
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            GPIO pin connected to the piezo buzzer signal pin.
+
+    config CLOSEDGATE_BUZZER_VOLUME
+        int "Buzzer Volume (Duty Cycle %)"
+        default 50
+        range 10 100
+        depends on CLOSEDGATE_BUZZER_ENABLED
+        help
+            Buzzer volume as LEDC duty cycle percentage.
+
+    config CLOSEDGATE_BUZZER_BOOT_SOUND
+        bool "Play sound on boot"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+
+    config CLOSEDGATE_BUZZER_CARD_SOUND
+        bool "Play sound on card detection"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+
+    config CLOSEDGATE_BUZZER_ACCESS_SOUND
+        bool "Play sound on access granted/denied"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+
+    config CLOSEDGATE_BUZZER_WIFI_SOUND
+        bool "Play sound on WiFi events"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
+
+    config CLOSEDGATE_BUZZER_ERROR_SOUND
+        bool "Play sound on errors"
+        default y
+        depends on CLOSEDGATE_BUZZER_ENABLED
 
 endmenu
