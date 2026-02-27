@@ -99,6 +99,7 @@ idf.py menuconfig
 
 Navigate to **CLOSEDGATE Configuration** and set:
 
+- **Device Mode**: Select Door (3s relay hold) or Gate / Hörmann (1s relay pulse)
 - **WiFi SSID**: Your WiFi network name
 - **WiFi Password**: Your WiFi password
 - **Yubico Client ID**: Your Yubico API client ID (see below)
@@ -170,10 +171,32 @@ To use the Yubico Cloud API for OTP verification, you need to register for a fre
 
 ## Configuration Options
 
+### Device Mode
+
+The firmware supports two operating modes, selected once at build time via `idf.py menuconfig` → **CLOSEDGATE Configuration** → **Device Mode**:
+
+| Mode | Relay Duration | Use Case |
+|------|---------------|----------|
+| **Door** (default) | 3 seconds | Electric door strikes, magnetic locks |
+| **Gate / Hörmann** | 1 second | Hörmann gate controllers and similar systems that expect a short impulse to toggle open/close |
+
+**Notes:**
+- The default mode is **Door** (safer default — longer hold ensures door strike releases fully).
+- For Hörmann gates (and similar impulse-controlled systems), select **Gate / Hörmann**. These controllers require a Normally Open (NO) contact — the relay briefly closes for 1 second to trigger the gate.
+- The mode is fixed at compile time; there is no runtime switching.
+
+To change the mode:
+```bash
+idf.py menuconfig
+```
+Navigate to: **CLOSEDGATE Configuration** → **Device Mode**
+
 ### Kconfig Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `CLOSEDGATE_MODE_DOOR` | y | Door mode: 3s relay hold (electric door strikes) |
+| `CLOSEDGATE_MODE_GATE` | n | Gate mode: 1s relay pulse (Hörmann gate controllers) |
 | `CLOSEDGATE_WIFI_SSID` | YourWiFiSSID | WiFi network name |
 | `CLOSEDGATE_WIFI_PASSWORD` | YourWiFiPassword | WiFi password |
 | `CLOSEDGATE_YUBICO_CLIENT_ID` | (empty) | Yubico API client ID |

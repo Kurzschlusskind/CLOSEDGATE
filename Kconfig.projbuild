@@ -52,6 +52,22 @@ menu "CLOSEDGATE Configuration"
             Your Yubico API Client ID.
             Register at https://upgrade.yubico.com/getapikey/
 
+    choice CLOSEDGATE_DEVICE_MODE
+        prompt "Device Mode"
+        default CLOSEDGATE_MODE_DOOR
+        help
+            Select the type of locking mechanism connected to the relay output.
+            
+            Door mode: relay held for 3 seconds (electric door strikes, magnetic locks).
+            Gate mode: relay pulsed for 1 second (Hörmann gate controllers and similar
+            systems that expect a short impulse to toggle open/close).
+
+        config CLOSEDGATE_MODE_DOOR
+            bool "Door (3 s relay hold)"
+        config CLOSEDGATE_MODE_GATE
+            bool "Gate / Hörmann (1 s relay pulse)"
+    endchoice
+
     config CLOSEDGATE_RELAY_GPIO
         int "Relay GPIO"
         default 6
