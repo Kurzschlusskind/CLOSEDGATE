@@ -148,6 +148,11 @@ void app_main(void)
 #ifdef CONFIG_CLOSEDGATE_MIFARE_ENABLED
     ESP_LOGI(TAG, "Mode: MIFARE Classic UID enabled");
 #endif
+#if defined(CONFIG_CLOSEDGATE_MODE_GATE)
+    ESP_LOGI(TAG, "Device mode: GATE (Hörmann, 1s pulse)");
+#else
+    ESP_LOGI(TAG, "Device mode: DOOR (3s relay hold)");
+#endif
 #if !defined(CONFIG_CLOSEDGATE_YUBIKEY_ENABLED) && !defined(CONFIG_CLOSEDGATE_MIFARE_ENABLED)
     ESP_LOGE(TAG, "FATAL: Both YubiKey and MIFARE modes are disabled - no authentication possible!");
     esp_restart();
@@ -420,7 +425,11 @@ static void uid_received_callback(const uint8_t *uid, size_t uid_len)
 #if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ACCESS_SOUND)
         buzzer_play_pattern(BUZZER_PATTERN_ACCESS_GRANTED);
 #endif
-        relay_control_trigger();
+#if defined(CONFIG_CLOSEDGATE_MODE_GATE)
+        relay_trigger_gate();
+#else
+        relay_trigger_door();
+#endif
     } else {
         ESP_LOGW(TAG, "=== ACCESS DENIED: UID %s not in whitelist ===", uid_hex);
 #if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ACCESS_SOUND)
@@ -463,7 +472,11 @@ static void otp_processing_task(void *pvParameters)
 #if defined(CONFIG_CLOSEDGATE_BUZZER_ENABLED) && defined(CONFIG_CLOSEDGATE_BUZZER_ACCESS_SOUND)
                     buzzer_play_pattern(BUZZER_PATTERN_ACCESS_GRANTED);
 #endif
-                    relay_control_trigger();
+#if defined(CONFIG_CLOSEDGATE_MODE_GATE)
+                    relay_trigger_gate();
+#else
+                    relay_trigger_door();
+#endif
                     break;
 
                 case YUBIKEY_STATUS_REPLAYED_OTP:

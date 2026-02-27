@@ -164,6 +164,18 @@ void relay_control_deinit(void)
     ESP_LOGI(TAG, "Relay control deinitialized");
 }
 
+esp_err_t relay_trigger_door(void)
+{
+    ESP_LOGI(TAG, "Door trigger: relay ON for 3000 ms");
+    return relay_control_trigger_ms(3000);
+}
+
+esp_err_t relay_trigger_gate(void)
+{
+    ESP_LOGI(TAG, "Gate trigger: relay pulse for 1000 ms (Hörmann)");
+    return relay_control_trigger_ms(1000);
+}
+
 /* ============ Private Functions ============ */
 
 static void pulse_timer_callback(TimerHandle_t xTimer)

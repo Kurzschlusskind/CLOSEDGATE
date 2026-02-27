@@ -63,6 +63,25 @@ void relay_control_force_off(void);
  */
 void relay_control_deinit(void);
 
+/**
+ * @brief Trigger relay for door mode (3000 ms hold)
+ *
+ * Keeps relay active for 3 seconds. Suitable for electric door strikes.
+ *
+ * @return ESP_OK on success
+ */
+esp_err_t relay_trigger_door(void);
+
+/**
+ * @brief Trigger relay for gate mode (1000 ms pulse)
+ *
+ * Sends a 1-second pulse. Suitable for Hörmann gate controllers
+ * which expect a short impulse to toggle the gate.
+ *
+ * @return ESP_OK on success
+ */
+esp_err_t relay_trigger_gate(void);
+
 #ifdef __cplusplus
 }
 #endif
